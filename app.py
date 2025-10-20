@@ -1,5 +1,4 @@
 import warnings
-
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import schedule
@@ -112,7 +111,7 @@ DASHBOARD_HTML = """
     <div class="container">
         <h1>📊 Crypto Cointegration Bot - Results Dashboard</h1>
         <p class="last-updated">Last updated: {{ last_updated }}</p>
-
+        
         <div class="card success">
             <h2>💰 Price Data</h2>
             {% if price_data_exists %}
@@ -138,7 +137,7 @@ DASHBOARD_HTML = """
                 <a href="/view/cointegrated-pairs" class="btn btn-view">👁️ View in Browser</a>
                 <a href="/view/cointegrated-pairs-table" class="btn btn-view">📋 View as Table</a>
             </div>
-
+            
             {% if cointegrated_pairs_stats.top_pairs %}
             <h3>Top Pairs (by Zero Crossings):</h3>
             <table>
@@ -164,7 +163,7 @@ DASHBOARD_HTML = """
                 </tbody>
             </table>
             {% endif %}
-
+            
             {% else %}
             <p style="color: #f39c12;">⚠️ Cointegrated pairs file not found or being calculated</p>
             {% endif %}
@@ -195,7 +194,6 @@ DASHBOARD_HTML = """
 </html>
 """
 
-
 def fetch_candles_job():
     """Job to fetch candle data every 6 hours"""
     logger.info("🚀 Starting candle data fetch job...")
@@ -210,7 +208,6 @@ def fetch_candles_job():
         logger.error(f"❌ Error in fetch_candles_job: {e}")
         return False
 
-
 def calculate_cointegration_job():
     """Job to calculate cointegrated pairs every 6 hours"""
     logger.info("🔄 Starting cointegration calculation job...")
@@ -224,7 +221,6 @@ def calculate_cointegration_job():
     except Exception as e:
         logger.error(f"❌ Error in calculate_cointegration_job: {e}")
         return False
-
 
 def full_pipeline_job():
     """Complete pipeline: fetch candles then calculate cointegration"""
@@ -243,20 +239,18 @@ def full_pipeline_job():
         logger.error(f"❌ Error in full_pipeline_job: {e}")
         return False
 
-
 def run_scheduler():
     """Run the scheduler for automated execution"""
     logger.info("⏰ Starting scheduler...")
-
+    
     # Schedule jobs to run every 6 hours
     schedule.every(6).hours.do(full_pipeline_job)
-
+    
     logger.info("📅 Scheduler started. Jobs will run every 6 hours.")
-
+    
     while True:
         schedule.run_pending()
         time.sleep(60)  # Check every minute
-
 
 # ==================== WEB ENDPOINTS ====================
 
@@ -265,12 +259,10 @@ def home():
     """Main dashboard page"""
     return render_template_string(DASHBOARD_HTML, **get_dashboard_data())
 
-
 @app.route('/dashboard')
 def dashboard():
     """Dashboard page"""
     return render_template_string(DASHBOARD_HTML, **get_dashboard_data())
-
 
 def get_dashboard_data():
     """Get data for dashboard"""
@@ -283,7 +275,7 @@ def get_dashboard_data():
                 'size': os.path.getsize(filename),
                 'modified': datetime.fromtimestamp(os.path.getmtime(filename)).strftime('%Y-%m-%d %H:%M:%S')
             })
-
+    
     # Price data stats
     price_data_exists = os.path.exists('1_price_list.json')
     price_data_stats = {}
@@ -297,7 +289,7 @@ def get_dashboard_data():
             }
         except:
             price_data_stats = {'symbols_count': 0, 'sample_symbols': 'Error reading file'}
-
+    
     # Cointegrated pairs stats
     cointegrated_pairs_exists = os.path.exists('2_cointegrated_pairs.csv')
     cointegrated_pairs_stats = {}
@@ -306,13 +298,12 @@ def get_dashboard_data():
             df = pd.read_csv('2_cointegrated_pairs.csv')
             cointegrated_pairs_stats = {
                 'pairs_count': len(df),
-                'last_calculated': datetime.fromtimestamp(os.path.getmtime('2_cointegrated_pairs.csv')).strftime(
-                    '%Y-%m-%d %H:%M:%S'),
+                'last_calculated': datetime.fromtimestamp(os.path.getmtime('2_cointegrated_pairs.csv')).strftime('%Y-%m-%d %H:%M:%S'),
                 'top_pairs': df.head(10).to_dict('records')
             }
         except:
             cointegrated_pairs_stats = {'pairs_count': 0, 'last_calculated': 'Error reading file', 'top_pairs': []}
-
+    
     return {
         'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'price_data_exists': price_data_exists,
@@ -322,30 +313,27 @@ def get_dashboard_data():
         'available_files': available_files
     }
 
-
 # ==================== DOWNLOAD ENDPOINTS ====================
 
 @app.route('/download/price-data')
 def download_price_data():
     """Download the price list JSON file"""
     try:
-        return send_file('1_price_list.json',
-                         as_attachment=True,
-                         download_name=f'price_data_{datetime.now().strftime("%Y%m%d_%H%M")}.json')
+        return send_file('1_price_list.json', 
+                        as_attachment=True, 
+                        download_name=f'price_data_{datetime.now().strftime("%Y%m%d_%H%M")}.json')
     except FileNotFoundError:
         return jsonify({"error": "Price data file not found"}), 404
-
 
 @app.route('/download/cointegrated-pairs')
 def download_cointegrated_pairs():
     """Download the cointegrated pairs CSV file"""
     try:
-        return send_file('2_cointegrated_pairs.csv',
-                         as_attachment=True,
-                         download_name=f'cointegrated_pairs_{datetime.now().strftime("%Y%m%d_%H%M")}.csv')
+        return send_file('2_cointegrated_pairs.csv', 
+                        as_attachment=True, 
+                        download_name=f'cointegrated_pairs_{datetime.now().strftime("%Y%m%d_%H%M")}.csv')
     except FileNotFoundError:
         return jsonify({"error": "Cointegrated pairs file not found"}), 404
-
 
 @app.route('/download-file/<filename>')
 def download_file(filename):
@@ -357,7 +345,6 @@ def download_file(filename):
             return jsonify({"error": f"File {filename} not found"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # ==================== VIEW ENDPOINTS ====================
 
@@ -373,20 +360,19 @@ def view_price_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route('/view/price-data-summary')
 def view_price_data_summary():
     """View price data summary in browser"""
     try:
         with open('1_price_list.json', 'r') as f:
             data = json.load(f)
-
+        
         summary = {
             "total_symbols": len(data),
             "symbols": list(data.keys()),
             "sample_data": {}
         }
-
+        
         # Add sample data for first 3 symbols
         for symbol in list(data.keys())[:3]:
             if data[symbol]:
@@ -395,11 +381,10 @@ def view_price_data_summary():
                     "first_candle": data[symbol][0] if data[symbol] else None,
                     "last_candle": data[symbol][-1] if data[symbol] else None
                 }
-
+        
         return jsonify(summary)
     except FileNotFoundError:
         return jsonify({"error": "Price data file not found"}), 404
-
 
 @app.route('/view/cointegrated-pairs')
 def view_cointegrated_pairs():
@@ -412,7 +397,6 @@ def view_cointegrated_pairs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route('/view/cointegrated-pairs-table')
 def view_cointegrated_pairs_table():
     """View cointegrated pairs as HTML table"""
@@ -421,7 +405,6 @@ def view_cointegrated_pairs_table():
         return df.to_html(classes='table table-striped', index=False)
     except FileNotFoundError:
         return "<h2>Cointegrated pairs file not found</h2>", 404
-
 
 # ==================== UTILITY ENDPOINTS ====================
 
@@ -437,9 +420,8 @@ def list_files():
                 'modified': datetime.fromtimestamp(os.path.getmtime(filename)).strftime('%Y-%m-%d %H:%M:%S'),
                 'download_url': f'/download-file/{filename}'
             })
-
+    
     return jsonify(files)
-
 
 @app.route('/health')
 def health():
@@ -454,7 +436,6 @@ def health():
         }
     })
 
-
 @app.route('/run-pipeline')
 def run_pipeline():
     """Manual trigger for the pipeline"""
@@ -467,7 +448,6 @@ def run_pipeline():
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # ==================== MAIN EXECUTION ====================
 
