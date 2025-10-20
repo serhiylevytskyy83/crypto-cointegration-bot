@@ -7,9 +7,14 @@ import json
 import os
 from datetime import datetime
 import logging
-import http.server
-import socketserver
-import threading
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import pandas as pd
+from fetch_candles import fetch_all_candles
+from calculate_cointegration import calculate_cointegrated_pairs
 
 # Set up logging
 logging.basicConfig(
@@ -18,116 +23,113 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import your modules
-from fetch_candles import fetch_all_candles
-from calculate_cointegration import calculate_cointegrated_pairs
+# Email configuration
+EMAIL_CONFIG = {
+    'smtp_server': 'smtp.gmail.com',
+    'smtp_port': 587,
+    'sender_email': 'your-bot-email@gmail.com',  # Change this to your bot's email
+    'sender_password': 'your-app-password',      # Gmail App Password
+    'receiver_email': 'lewika.trade@gmail.com'
+}
 
-class FileHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        # Route handling
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(self.create_dashboard().encode())
+def send_email_with_files(subject, body, files_to_attach=None):
+    """Send email with attached files"""
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_CONFIG['sender_email']
+        msg['To'] = EMAIL_CONFIG['receiver_email']
+        msg['Subject'] = subject
+
+        # Add body to email
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Attach files
+        if files_to_attach:
+            for file_path in files_to_attach:
+                if os.path.exists(file_path):
+                    # Open the file in binary mode
+                    with open(file_path, "rb") as attachment:
+                        # Add file as application/octet-stream
+                        part = MIMEBase("application", "octet-stream")
+                        part.set_payload(attachment.read())
+                    
+                    # Encode file in ASCII characters to send by email    
+                    encoders.encode_base64(part)
+                    
+                    # Add header as key/value pair to attachment part
+                    part.add_header(
+                        "Content-Disposition",
+                        f"attachment; filename= {os.path.basename(file_path)}",
+                    )
+                    
+                    # Add attachment to message
+                    msg.attach(part)
+                    logger.info(f"✅ Attached file: {file_path}")
+                else:
+                    logger.warning(f"⚠️ File not found: {file_path}")
+
+        # Create SMTP session
+        server = smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port'])
+        server.starttls()  # Enable security
+        server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['sender_password'])
         
-        elif self.path == '/download/price-data':
-            self.serve_file('1_price_list.json', 'price_data.json')
+        # Convert message to string and send
+        text = msg.as_string()
+        server.sendmail(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['receiver_email'], text)
+        server.quit()
         
-        elif self.path == '/download/cointegrated-pairs':
-            self.serve_file('2_cointegrated_pairs.csv', 'cointegrated_pairs.csv')
+        logger.info("✅ Email sent successfully!")
+        return True
         
-        elif self.path == '/files':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(self.list_files()).encode())
-        
-        elif self.path == '/health':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                "status": "healthy",
-                "timestamp": datetime.now().isoformat()
-            }).encode())
-        
-        else:
-            super().do_GET()
+    except Exception as e:
+        logger.error(f"❌ Failed to send email: {e}")
+        return False
+
+def send_results_email():
+    """Send all results files via email"""
+    files_to_send = []
     
-    def serve_file(self, filename, download_name):
-        if os.path.exists(filename):
-            self.send_response(200)
-            self.send_header('Content-type', 'application/octet-stream')
-            self.send_header('Content-Disposition', f'attachment; filename="{download_name}"')
-            self.end_headers()
-            
-            with open(filename, 'rb') as f:
-                self.wfile.write(f.read())
-        else:
-            self.send_response(404)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "File not found"}).encode())
+    # Check which files exist
+    if os.path.exists('1_price_list.json'):
+        files_to_send.append('1_price_list.json')
     
-    def list_files(self):
-        files = []
-        for filename in os.listdir('.'):
-            if os.path.isfile(filename):
-                files.append({
-                    'name': filename,
-                    'size': os.path.getsize(filename),
-                    'modified': datetime.fromtimestamp(os.path.getmtime(filename)).isoformat()
-                })
-        return files
+    if os.path.exists('2_cointegrated_pairs.csv'):
+        files_to_send.append('2_cointegrated_pairs.csv')
     
-    def create_dashboard(self):
-        price_data_exists = os.path.exists('1_price_list.json')
-        pairs_exists = os.path.exists('2_cointegrated_pairs.csv')
-        
-        html = f"""
-        <html>
-        <head>
-            <title>Crypto Bot Dashboard</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 40px; }}
-                .card {{ border: 1px solid #ddd; padding: 20px; margin: 10px; }}
-                .success {{ background-color: #d4edda; }}
-                .error {{ background-color: #f8d7da; }}
-                .btn {{ display: inline-block; padding: 10px; margin: 5px; background: #007bff; color: white; text-decoration: none; }}
-            </style>
-        </head>
-        <body>
-            <h1>Crypto Cointegration Bot</h1>
-            <p>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            
-            <div class="card {'success' if price_data_exists else 'error'}">
-                <h2>Price Data</h2>
-                {'<p>File available</p><a href="/download/price-data" class="btn">Download</a>' if price_data_exists else '<p>File not found</p>'}
-            </div>
-            
-            <div class="card {'success' if pairs_exists else 'error'}">
-                <h2>Cointegrated Pairs</h2>
-                {'<p>File available</p><a href="/download/cointegrated-pairs" class="btn">Download</a>' if pairs_exists else '<p>File not found</p>'}
-            </div>
-            
-            <div class="card">
-                <h2>Tools</h2>
-                <a href="/files" class="btn">List Files</a>
-                <a href="/health" class="btn">Health Check</a>
-            </div>
-        </body>
-        </html>
-        """
-        return html
+    if not files_to_send:
+        logger.warning("⚠️ No result files found to send")
+        return False
+    
+    # Create email content
+    subject = f"Crypto Bot Results - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    
+    body = f"""
+    Crypto Cointegration Bot Results
+    
+    Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    
+    Files attached:
+    {chr(10).join(f'- {file}' for file in files_to_send)}
+    
+    Total files: {len(files_to_send)}
+    
+    ---
+    Automated Crypto Trading Bot
+    """
+    
+    # Send email
+    return send_email_with_files(subject, body, files_to_send)
 
 def fetch_candles_job():
-    """Job to fetch candle data every 6 hours"""
+    """Job to fetch candle data every 6 hours and send email"""
     logger.info("🚀 Starting candle data fetch job...")
     try:
         success = fetch_all_candles()
         if success:
             logger.info("✅ Candle data fetch completed successfully")
+            # Send email after successful fetch
+            send_results_email()
         else:
             logger.error("❌ Candle data fetch failed")
         return success
@@ -136,12 +138,14 @@ def fetch_candles_job():
         return False
 
 def calculate_cointegration_job():
-    """Job to calculate cointegrated pairs every 6 hours"""
+    """Job to calculate cointegrated pairs every 6 hours and send email"""
     logger.info("🔄 Starting cointegration calculation job...")
     try:
         success = calculate_cointegrated_pairs()
         if success:
             logger.info("✅ Cointegration calculation completed successfully")
+            # Send email after successful calculation
+            send_results_email()
         else:
             logger.error("❌ Cointegration calculation failed")
         return success
@@ -150,7 +154,7 @@ def calculate_cointegration_job():
         return False
 
 def full_pipeline_job():
-    """Complete pipeline: fetch candles then calculate cointegration"""
+    """Complete pipeline: fetch candles then calculate cointegration then send email"""
     logger.info("🎯 Starting full pipeline job...")
     try:
         # Fetch candles first
@@ -158,6 +162,8 @@ def full_pipeline_job():
             # Then calculate cointegration
             calculate_cointegrated_pairs()
             logger.info("✅ Full pipeline completed successfully")
+            # Send final email with all results
+            send_results_email()
             return True
         else:
             logger.error("❌ Full pipeline failed at candle fetching stage")
@@ -177,17 +183,36 @@ def run_scheduler():
     
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(60)  # Check every minute
 
-def start_web_server():
-    """Start the web server"""
-    port = int(os.environ.get('PORT', 5000))
-    with socketserver.TCPServer(("", port), FileHandler) as httpd:
-        logger.info(f"🌐 Web server running on port {port}")
-        httpd.serve_forever()
+# Simple web endpoint to manually trigger email
+try:
+    from flask import Flask, jsonify
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def home():
+        return "Crypto Bot is running! Use /send-results to email files."
+    
+    @app.route('/send-results')
+    def send_results_endpoint():
+        """Manual trigger to send results via email"""
+        success = send_results_email()
+        return jsonify({
+            "status": "success" if success else "error",
+            "message": "Results sent to email" if success else "Failed to send email"
+        })
+    
+    def start_web_server():
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port)
+        
+except ImportError:
+    def start_web_server():
+        logger.info("🌐 Web server not available (Flask not installed)")
 
 if __name__ == "__main__":
-    # Determine if we're running as web or worker
+    # For Heroku/Railway, determine if we're running as web or worker
     if os.environ.get('PROCESS_TYPE') == 'worker':
         logger.info("👷 Starting as worker process with scheduler...")
         # Run initial job
