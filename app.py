@@ -135,7 +135,7 @@ def full_pipeline_job():
 
 def run_scheduler():
     logger.info("⏰ Starting scheduler...")
-    schedule.every(12).hours.do(full_pipeline_job)
+    schedule.every(6).hours.do(full_pipeline_job)
     logger.info("📅 Scheduler started. Jobs will run every 6 hours.")
     while True:
         schedule.run_pending()
